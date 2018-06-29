@@ -6,7 +6,15 @@
 _die() { echo >&2 "$@"; exit 1; }
 _usage() { _die "usage: $0 [-s SECS] [-f] [-n] <topic-name or topic-arn>"; }
 _meta() { curl -s "http://169.254.169.254/latest/meta-data/$1"; }
-_json() { env - "$@" jq -n -c 'env'; }
+_json() {
+  local arg; local json=""; local args=(); local n=0
+  for arg; do
+    args=("${args[@]}" --arg k$n "${arg%%=*}" --arg v$n "${arg#*=}")
+    json="${json:+"$json,"}(\$k$n):\$v$n"
+    n=$((n + 1))
+  done
+  jq -n -c "${args[@]}" "{$json}"
+}
 
 FORCE=no
 DRYRUN=no
@@ -30,7 +38,7 @@ AZ=$(_meta placement/availability-zone)
 export AWS_DEFAULT_REGION
 
 if [[ "$TOPIC" != arn:aws:sns:* ]]; then
-  TOPIC="$(aws sns list-topics | jq -r ".Topics[].TopicArn|select(endswith(\":$TOPIC\"))")"
+  TOPIC="$(aws sns list-topics | jq -r ".Topics[].TopicArn" | grep ":${TOPIC}\$" -m1)"
   [ -z "$TOPIC" ] && _die "SNS topic $1 not found."
 fi
 
