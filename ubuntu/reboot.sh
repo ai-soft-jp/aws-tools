@@ -34,8 +34,7 @@ TOPIC="$1"
 [[ $FORCE = yes || -e /var/run/reboot-required ]] || exit
 
 AZ=$(_meta placement/availability-zone)
-[ -z "$AWS_DEFAULT_REGION" ] && AWS_DEFAULT_REGION=$(expr "$AZ" : '\(.*\)[a-z]')
-export AWS_DEFAULT_REGION
+export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-${AZ%[a-z]}}
 
 if [[ "$TOPIC" != arn:aws:sns:* ]]; then
   TOPIC="$(aws sns list-topics | jq -r ".Topics[].TopicArn" | grep ":${TOPIC}\$" -m1)"
