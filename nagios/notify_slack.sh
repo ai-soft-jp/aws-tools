@@ -3,10 +3,11 @@
 # Nagios notification to slack
 # Copyright Ai-SOFT Inc.
 #
-# Usage: notify_slack.sh <-e WEBHOOK> [-n USERNAME] [-i ICONURL] [-c CHANNEL] [-H|-S] [VAR=VALUE...]
+# Usage: notify_slack.sh {-e URI|-t TOKENS} [-n USERNAME] [-i ICONURL] [-c CHANNEL] [-H|-S] [VAR=VALUE...]
 #
 # Options:
-#   -e WEBHOOK      Slack incoming webhook URI
+#   -e URI          Slack incoming webhook URI
+#   -t TOKEN...     Colon-separated webhook tokens
 #   -n USERNAME     Username (default: "Nagios (hostname)")
 #   -i ICONURL      Icon URL (default: use aispub)
 #   -c CHANNEL      Slack channel (default: use default)
@@ -18,16 +19,18 @@
 #   This script requires jq and curl.
 #
 _die() { echo >&2 "$@"; exit 1; }
-_usage() { _die "usage: $0 [-e WEBHOOK] [-n USERNAME] [-i ICONURL] [-c CHANNEL] [-H|-S] [VAR=VALUE...]"; }
+_usage() { _die "usage: $0 {-e URI|-t TOKENS} [-n USERNAME] [-i ICONURL] [-c CHANNEL] [-H|-S] [VAR=VALUE...]"; }
 
 WEBHOOK=
+TOKENS=
 USERNAME="Nagios ($(hostname))"
 ICONURL=https://aispub.s3.amazonaws.com/svicons/nagios.png
 CHANNEL=
 MODE=service
-while getopts e:n:i:c:HS OPT; do
+while getopts e:t:n:i:c:HSh OPT; do
   case $OPT in
     e ) WEBHOOK=$OPTARG ;;
+    t ) TOKENS=$OPTARG ;;
     n ) USERNAME=$OPTARG ;;
     i ) ICONURL=$OPTARG ;;
     c ) CHANNEL=$OPTARG ;;
@@ -41,11 +44,15 @@ for var; do
   [[ $var = *=* ]] || _usage
   eval "NAGIOS_${var%%=*}"='${var#*=}'
 done
-[[ -z $WEBHOOK ]] && _die "Error: No WEBHOOK url"
-[[ -z $NAGIOS_NOTIFICATIONTYPE ]] && _die "Error: No nagios variables"
 
-EOL="
-"
+WEBHOOKS=($WEBHOOK)
+for token in ${TOKENS//:/ }; do
+  WEBHOOKS+=("https://hooks.slack.com/services/$token")
+done
+[[ ${#WEBHOOKS[*]} = 0 ]] && _usage
+[[ -z $NAGIOS_NOTIFICATIONTYPE ]] && _die "No Nagios variables."
+
+EOL=$'\n'
 
 ARGN=1; JQARGS=(); JQSTMPL=; JQATMPL=; JQREPL=
 _jqarg() {
@@ -103,6 +110,9 @@ _attach fallback="$FALLBACK"
 _attach text="${NTYPE:+"$NTYPE - "}$TEXT"
 [[ -n "$COLOR" ]] && _attach color="$COLOR"
 
-JSON="$(jq -n -c "${JQARGS[@]}" "{$JQSTMPL,\"attachments\":[{$JQATMPL}]}")"
+JSON=$(jq -n -c "${JQARGS[@]}" "{$JQSTMPL,\"attachments\":[{$JQATMPL}]}")
 
-curl -f -s "$WEBHOOK" -d "$JSON" -H 'Content-Type: application/json' >/dev/null
+for uri in "${WEBHOOKS[@]}"; do
+  curl -f -s "$uri" -d "$JSON" -H 'Content-Type: application/json' >/dev/null &
+done
+wait
