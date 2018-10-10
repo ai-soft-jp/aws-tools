@@ -1,0 +1,21 @@
+# invalid domain rejection list
+.localhost              REJECT Invalid domain RFC 2606
+.localdomain            REJECT Invalid domain .localdomain
+.local                  REJECT Invalid domain .local
+.private                REJECT Invalid domain .private
+.example                REJECT Invalid domain RFC 2606
+.test                   REJECT Invalid domain RFC 2606
+.invalid                REJECT Invalid domain RFC 2606
+.home                   REJECT Invalid domain .home
+.corp                   REJECT Invalid domain .corp
+.arpa                   REJECT Invalid domain .arpa
+.internal               REJECT Invalid domain EC2 internal
+.onion                  REJECT Invalid domain Tor
+example.com             REJECT Invalid domain RFC 2606
+.example.com            REJECT Invalid domain RFC 2606
+example.net             REJECT Invalid domain RFC 2606
+.example.net            REJECT Invalid domain RFC 2606
+example.org             REJECT Invalid domain RFC 2606
+.example.org            REJECT Invalid domain RFC 2606
+example.jp              REJECT Invalid domain example.jp
+.example.jp             REJECT Invalid domain example.jp

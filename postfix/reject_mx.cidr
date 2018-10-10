@@ -1,0 +1,31 @@
+# IPv4
+0.0.0.0/8               REJECT Invalid MX RFC 1122
+10.0.0.0/8              REJECT Invalid MX RFC 1918
+100.64.0.0/10           REJECT Invalid MX RFC 6598
+127.0.0.0/8             REJECT Invalid MX RFC 1122
+169.254.0.0/16          REJECT Invalid MX RFC 3927
+172.16.0.0/12           REJECT Invalid MX RFC 1818
+192.0.0.0/24            REJECT Invalid MX RFC 6890
+192.0.2.0/24            REJECT Invalid MX TEST-NET-1
+192.31.196.0/24         REJECT Invalid MX RFC 7535
+192.51.193.0/24         REJECT Invalid MX RFC 7450
+192.88.99.0/24          REJECT Invalid MX RFC 7526
+192.168.0.0/16          REJECT Invalid MX RFC 1918
+192.175.48.0/24         REJECT Invalid MX RFC 7534
+198.18.0.0/15           REJECT Invalid MX RFC 2544
+198.51.100.0/24         REJECT Invalid MX TEST-NET-2
+203.0.113.0/24          REJECT Invalid MX TEST-NET-3
+224.0.0.0/4             REJECT Invalid MX 224.0.0.0/4
+240.0.0.0/4             REJECT Invalid MX 240.0.0.0/4
+# IPv6
+::/128                  REJECT Invalid MX ::
+::1/128                 REJECT Invalid MX ::1
+::/96                   REJECT Invalid MX RFC 1884
+100::/64                REJECT Invalid MX RFC 6666
+2001:10::/28            REJECT Invalid MX ORCHID
+2001:20::/28            REJECT Invalid MX ORCHIDv2
+2001:db8::/32           REJECT Invalid MX RFC 3849
+fc00::/7                REJECT Invalid MX ULA
+fe80::/10               REJECT Invalid MX LLU
+fec0::/10               REJECT Invalid MX SLA
+ff00::/8                REJECT Invalid MX ff00::/8
