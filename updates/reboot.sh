@@ -85,4 +85,4 @@ SNSJSON=$(_json email="$REBOOTTEXT" default="$JSON")
 
 aws sns publish --topic-arn "$TOPIC" --subject "$SUBJECT" \
     --message "$SNSJSON" --message-structure json >/dev/null
-[[ $DRYRUN = yes ]] || shutdown -r -f +5 "Automatic reboot attempted after 5 mins."
+[[ $DRYRUN = yes ]] || shutdown -r -f +5 "Automatic reboot attempted after 5 mins." 2>/dev/null
