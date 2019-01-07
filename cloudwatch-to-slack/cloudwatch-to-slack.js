@@ -68,11 +68,18 @@ const elasticacheColor = {
     'Failed': 'danger',
     'Rebooted': 'warning',
 };
+const codeDeployColor = {
+    'CREATED': '#439FE0',
+    'SUCCEEDED': 'good',
+    'FAILED': 'danger',
+    'ROLLEDBACK': 'warning',
+};
 const propMap = {
     'AlarmName': CloudWatchMessage,
     'Source ID': RDSMessage,
     'configurationItem': ConfigChangeMessage,
     's3Bucket': ConfigHistoryMessage,
+    'deploymentId': CodeDeployMessage,
     'hostname': EC2Message,
 };
 
@@ -111,21 +118,18 @@ function postMessage(message) {
 }
 
 function SimpleMessage(subject, message) {
-    const slackMessage = {
+    return {
         channel: slackChannel,
         username: 'Event Notification',
         icon_url: `${iconBase}/SNS.png`,
         attachments: [{
             title: subject,
             fallback: 'Unknown Event Notification',
-            fields: [],
+            fields: Object.entries(message).map(([key, value]) => (
+                {title: key, value: JSON.stringify(value), short: false}
+            )),
         }],
     };
-    const fields = slackMessage.attachments[0].fields;
-    for (const [key, value] of Object.entries(message)) {
-        fields.push({title: key, value: JSON.stringify(value), short: false});
-    }
-    return slackMessage;
 }
 
 function RawMessage(snsMessage) {
@@ -212,6 +216,23 @@ function ElastiCacheMessage(subject, message) {
         attachments: [{
             text: textMessage.join("\n"),
             color: color,
+        }],
+    };
+}
+
+function CodeDeployMessage(subject, message) {
+    return {
+        channel: slackChannel,
+        username: 'CodeDeploy',
+        icon_url: `${iconBase}/CodeDeploy.png`,
+        attachments: [{
+            title: subject,
+            color: codeDeployColor[message.status],
+            fields: ['createTime', 'completeTime'].map(k => (
+                {title: k, value: message[k], short: true}
+            )),
+            footer: `${message.eventTriggerName} - ${message.applicationName} - ${message.deploymentGroupName}`,
+            ts: epoch(message.completeTime || message.createTime),
         }],
     };
 }
