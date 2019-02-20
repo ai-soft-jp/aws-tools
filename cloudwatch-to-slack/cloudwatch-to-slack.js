@@ -84,6 +84,11 @@ const runCommandColor = {
     Failed: 'danger',
     Cancelling: '#888888',
 };
+const healthTypeColor = {
+    issue: 'warning',
+    scheduledChange: '#888888',
+    accountNotification: '#439FE0',
+};
 const propMap = {
     'AlarmName': CloudWatchMessage,
     'Source ID': RDSMessage,
@@ -326,6 +331,24 @@ function CloudFormationMessage(message) {
     };
 }
 
+function HealthMessage(subject, message) {
+    const detail = message.detail;
+    const url = `https://phd.aws.amazon.com/phd/home?region=${message.region}#/event-log?eventID=${detail.eventArn}`;
+    return {
+        username: 'AWS Health',
+        icon_url: `${iconBase}/AWS.png`,
+        attachments: [{
+            color: healthTypeColor[detail.eventTypeCategory],
+            text: `${detail.eventTypeCategory} - ${detail.eventTypeCode}\n` +
+                  `${detail.eventDesceription[0].latestDescription}\n` +
+                  `<${url}|Click here for details>`,
+            fallback: detail.eventDesceription[0].latestDescription,
+            footer: message.region,
+            ts: epoch(message.time),
+        }],
+    };
+}
+
 function AmazonIpSpaceChangedMessage(subject, message) {
     return {
         username: 'AWS',
@@ -347,6 +370,9 @@ function SnsMessage(snsMessage) {
         const message = JSON.parse(snsMessage.Message);
         if (snsMessage.TopicArn === 'arn:aws:sns:us-east-1:806199016981:AmazonIpSpaceChanged') {
             return AmazonIpSpaceChangedMessage(subject, message);
+        }
+        if (message.source === 'aws.health') {
+            return HealthMessage(subject, message);
         }
         for (const [prop, func] of Object.entries(propMap)) {
             if (message[prop]) return func(subject, message);
