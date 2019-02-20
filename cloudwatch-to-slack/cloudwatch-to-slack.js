@@ -9,7 +9,7 @@ const https = require('https');
 
 const iconBase = 'https://aispub.s3.amazonaws.com/awsicons';
 const kmsEncryptedHookUrl = process.env.kmsEncryptedHookUrl;
-const slackChannel = process.env.slackChannel;
+const slackChannelDefault = process.env.slackChannel;
 const DEBUG = process.env.DEBUG;
 let hookUrl;
 
@@ -64,15 +64,25 @@ const rdsEventColor = {
     'RDS-EVENT-0019': 'good',       // instance recovered from point
 };
 const elasticacheColor = {
-    'Complete': 'good',
-    'Failed': 'danger',
-    'Rebooted': 'warning',
+    Complete: 'good',
+    Failed: 'danger',
+    Rebooted: 'warning',
 };
 const codeDeployColor = {
-    'CREATED': '#439FE0',
-    'SUCCEEDED': 'good',
-    'FAILED': 'danger',
-    'ROLLEDBACK': 'warning',
+    CREATED: '#439FE0',
+    SUCCEEDED: 'good',
+    FAILED: 'danger',
+    ROLLEDBACK: 'warning',
+};
+const runCommandColor = {
+    Pending: '#aaaaaa',
+    InProgress: '#439FE0',
+    Delayed: 'warning',
+    Success: 'good',
+    Cancelled: 'warning',
+    TimedOut: 'danger',
+    Failed: 'danger',
+    Cancelling: '#888888',
 };
 const propMap = {
     'AlarmName': CloudWatchMessage,
@@ -80,6 +90,7 @@ const propMap = {
     'configurationItem': ConfigChangeMessage,
     's3Bucket': ConfigHistoryMessage,
     'deploymentId': CodeDeployMessage,
+    'commandId': RunCommandMessage,
     'hostname': EC2Message,
 };
 
@@ -119,7 +130,6 @@ function postMessage(message) {
 
 function SimpleMessage(subject, message) {
     return {
-        channel: slackChannel,
         username: 'Event Notification',
         icon_url: `${iconBase}/SNS.png`,
         attachments: [{
@@ -136,7 +146,6 @@ function RawMessage(snsMessage) {
     let message = snsMessage.Message;
     if (snsMessage.Subject) message = `*${snsMessage.Subject}*\n${message}`;
     return {
-        channel: slackChannel,
         username: snsMessage.Type,
         icon_url: `${iconBase}/SNS.png`,
         text: message,
@@ -157,7 +166,6 @@ function CloudWatchMessage(subject, message) {
     if (newState != 'OK') messageText += `\n${reason}`;
 
     return {
-        channel: slackChannel,
         username: 'CloudWatch',
         icon_url: `${iconBase}/CloudWatch.png`,
         attachments: [{
@@ -178,7 +186,6 @@ function RDSMessage(subject, message) {
     const identifierLink = message['Identifier Link'];
 
     const slackMessage = {
-        channel: slackChannel,
         username: 'Amazon RDS',
         icon_url: `${iconBase}/RDS.png`,
         attachments: [{
@@ -210,7 +217,6 @@ function ElastiCacheMessage(subject, message) {
         }
     }
     return {
-        channel: slackChannel,
         username: 'ElastiCache',
         icon_url: `${iconBase}/ElastiCache.png`,
         attachments: [{
@@ -222,7 +228,6 @@ function ElastiCacheMessage(subject, message) {
 
 function CodeDeployMessage(subject, message) {
     return {
-        channel: slackChannel,
         username: 'CodeDeploy',
         icon_url: `${iconBase}/CodeDeploy.png`,
         attachments: [{
@@ -237,9 +242,34 @@ function CodeDeployMessage(subject, message) {
     };
 }
 
+async function RunCommandMessage(subject, message) {
+    const SSM = new AWS.SSM();
+    const invokation = await SSM.getCommandInvocation({
+        CommandId: message.commandId,
+        InstanceId: message.instanceId
+    }).promise();
+
+    const slackMessage = {
+        username: 'Systems Manager',
+        icon_url: `${iconBase}/EC2SystemsManager.png`,
+        attachments: [{
+            title: `${message.status}: ${message.documentName} at ${message.instanceId} (code: ${invokation.ResponseCode})`,
+            color: runCommandColor[message.status],
+            fields: [],
+            footer: message.commandId,
+            ts: epoch(message.requestedDateTime),
+        }],
+    };
+    for (const [field, label] of [['StandardOutputContent', 'stdout'], ['StandardErrorContent', 'stderr']]) {
+        if (invokation[field]) {
+            slackMessage.attachments[0].fields.push({title: label, value: invokation[field], short: false});
+        }
+    }
+    return slackMessage;
+}
+
 function EC2Message(subject, message) {
     return {
-        channel: slackChannel,
         username: `EC2 - ${message.hostname}`,
         icon_url: `${iconBase}/EC2.png`,
         attachments: [{
@@ -256,7 +286,6 @@ function ConfigChangeMessage(subject, message) {
     const creationTime = message.notificationCreationTime;
     const changedProps = Object.keys(itemDiff.changedProperties);
     const slackMessage = {
-        channel: slackChannel,
         username: 'AWS Config',
         icon_url: `${iconBase}/Config.png`,
         text: `${itemDiff.changeType} - ${item.resourceType} ${item.resourceName}`,
@@ -280,7 +309,6 @@ function ConfigHistoryMessage(subject, message) {
     const match = /AWSLogs\/(\d+)\/(CloudTrail|Config)\/([\w\-]+)/.exec(message.s3ObjectKey);
     const isConfig = match[2] === 'Config';
     return {
-        channel: slackChannel,
         username: isConfig ? 'AWS Config' : 'CloudTrail',
         icon_url: `${iconBase}/${match[2]}.png`,
         text: `Configuration History Delivery Completed: ${match[3]} - ${match[1]}`,
@@ -292,22 +320,34 @@ function CloudFormationMessage(message) {
     const resourceType = /ResourceType='(.*?)'/.exec(message);
     const resourceStatus = /ResourceStatus='(.*?)'/.exec(message);
     return {
-        channel: slackChannel,
         username: 'CloudFormation',
         icon_url: `${iconBase}/CloudFormation.png`,
         text: `${stackName[1]}: ${resourceStatus[1]} - ${resourceType[1]}`,
     };
 }
 
-function buildMessage(event) {
-    if (DEBUG) console.log('incoming event: ' + JSON.stringify(event, null, '  '));
-    const snsMessage = event.Records[0].Sns;
+function AmazonIpSpaceChangedMessage(subject, message) {
+    return {
+        username: 'AWS',
+        icon_url: `${iconBase}/AWS.png`,
+        attachments: [{
+            title: subject,
+            text: message.url,
+            ts: epoch(message['create-time'].replace(/^(\d+-\d+-\d+)-(\d+)-(\d+)-(\d+)$/, "$1 $2:$3:$4 UTC")),
+        }],
+    };
+}
+
+function SnsMessage(snsMessage) {
     if (snsMessage.Subject === 'AWS CloudFormation Notification') {
         return CloudFormationMessage(snsMessage.Message);
     }
     try {
         const subject = snsMessage.Subject;
         const message = JSON.parse(snsMessage.Message);
+        if (snsMessage.TopicArn === 'arn:aws:sns:us-east-1:806199016981:AmazonIpSpaceChanged') {
+            return AmazonIpSpaceChangedMessage(subject, message);
+        }
         for (const [prop, func] of Object.entries(propMap)) {
             if (message[prop]) return func(subject, message);
         }
@@ -315,13 +355,36 @@ function buildMessage(event) {
             return ElastiCacheMessage(subject, message);
         }
         return SimpleMessage(subject, message);
-    } catch(e) {
+    } catch (e) {
+        console.error(`Error while building message: ${e.type}: ${e.message}`);
         return RawMessage(snsMessage);
     }
 }
 
+function buildMessage(event) {
+    if (DEBUG) console.log(`incoming event: ${JSON.stringify(event, null, '  ')}`);
+    if (event.Records && event.Records[0].EventSource === 'aws:sns') {
+        return SnsMessage(event.Records[0].Sns);
+    }
+}
+
+function getSlackChannel(event) {
+    const topic = event.Records[0].Sns.TopicArn;
+    const match = topic && /^arn:aws:sns:[^:]+:[^:]+:(.*)/.exec(topic);
+    if (match) {
+        return process.env[`slackChannel_${match[1]}`] || slackChannelDefault;
+    } else {
+        return slackChannelDefault;
+    }
+}
+
 async function processEvent(event) {
-    const slackMessage = buildMessage(event);
+    const slackMessage = await buildMessage(event);
+    if (!slackMessage) {
+        console.error('Failed to parse message');
+        return;
+    }
+    slackMessage.channel = getSlackChannel(event);
     const response = await postMessage(slackMessage);
     if (response.statusCode < 400) {
         console.info('Message posted successfully');
