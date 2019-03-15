@@ -23,7 +23,7 @@ _usage() { _die "usage: $0 {-e URI|-t TOKENS} [-n USERNAME] [-i ICONURL] [-c CHA
 
 WEBHOOK=
 TOKENS=
-USERNAME="Nagios ($(hostname))"
+USERNAME="Nagios ($(hostname -s))"
 ICONURL=https://aispub.s3.amazonaws.com/svicons/nagios.png
 CHANNEL=
 MODE=service
