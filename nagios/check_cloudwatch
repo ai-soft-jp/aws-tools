@@ -1,0 +1,29 @@
+#!/bin/bash
+#
+_die() { echo >&2 "$@"; exit 1; }
+_usage() { _die "usage: $0"; }
+_meta() { /usr/bin/curl -s --connect-timeout 3 "http://169.254.169.254/latest/meta-data/$1"; }
+_procs() { { pidof "$@" || :; } | wc -w; }
+
+INSTANCEID=$(_meta instance-id)
+AZ=$(_meta placement/availability-zone)
+[[ -n "$INSTANCEID" && -n "$AZ" ]] || _die "Can't access instance meta-data."
+export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-${AZ%[a-z]}}
+
+PROCNAME="${1:-/usr/sbin/nagios}"
+VALUE=$(_procs $PROCNAME)
+
+if aws cloudwatch put-metric-data \
+     --namespace Nagios \
+     --metric-name $(basename "$PROCNAME") \
+     --unit Count \
+     --value "$VALUE" \
+     --dimensions "InstanceId=${INSTANCEID}"
+then
+  [[ $VALUE = 0 ]] && STATUS=WARNING || STATUS=OK
+  echo "CloudWatch $STATUS: $VALUE process(s) of $PROCNAME are running."
+  [[ $VALUE = 0 ]] && exit 1
+  exit 0
+else
+  exit 2
+fi
