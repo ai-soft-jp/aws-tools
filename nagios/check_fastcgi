@@ -158,8 +158,8 @@ begin
       fcgi_send(sock, FCGI_PARAMS, fcgi_params(params))
       fcgi_send(sock, FCGI_PARAMS, "")
       fcgi_send(sock, FCGI_STDIN, "")
-      stdout = +""
-      stderr = +""
+      stdout = "".dup
+      stderr = "".dup
       status = proto = nil
       while packet = fcgi_recv(sock)
         type, data = packet
