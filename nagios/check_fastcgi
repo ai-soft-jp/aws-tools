@@ -25,15 +25,15 @@ FCGI_AUTHORIZER = 2
 FCGI_FILTER = 3
 
 def crit(*mesg)
-  puts *mesg
+  puts(*mesg)
   exit 2
 end
 def warn(*mesg)
-  puts *mesg
+  puts(*mesg)
   exit 1
 end
 def die(*mesg)
-  $stderr.puts *mesg
+  $stderr.puts(*mesg)
   exit 255
 end
 
@@ -89,23 +89,37 @@ opts[:params].each do |param|
 end
 
 FastCGIProtocolError = Class.new(RuntimeError)
+PADALIGN = 8
+PADMASK = PADALIGN - 1
+
+class IO
+  if RUBY_VERSION >= '2.5'
+    alias writev write
+  else
+    def writev(*str)
+      write(str.join)
+    end
+  end
+end
 
 def fcgi_fail(mesg)
   raise FastCGIProtocolError, mesg
 end
 def fcgi_send(sock, type, data)
-  sock.write([FCGI_VERSION_1, type, 1, data.bytesize, 0].pack('CCnnCx'), data)
+  data = Array(data)
+  datalen = data.inject(0) { |i, s| i + s.bytesize }
+  padlen = (PADALIGN - datalen & PADMASK) & PADMASK
+  header = [FCGI_VERSION_1, type, 1, datalen, padlen].pack('CCnnCx')
+  sock.writev(header, *data, "\0" * padlen)
 end
 def fcgi_recv(sock)
   r = sock.read(FCGI_HEADER_LEN)
   fcgi_fail("unexpected header length") unless r && r.bytesize == FCGI_HEADER_LEN
   fver, type, reqid, datalen, padlen = r.unpack('CCnnCx')
   fcgi_fail("unexpected protocol version") unless fver == FCGI_VERSION_1 && reqid == 1
-  data = sock.read(datalen)
-  fcgi_fail("data length too short") unless data.bytesize == datalen
-  pad = padlen > 0 ? sock.read(padlen) : ""
-  fcgi_fail("pad length too short") unless pad.bytesize == padlen
-  [type, data]
+  data = sock.read(datalen + padlen)
+  fcgi_fail("data length too short") unless data.bytesize == datalen + padlen
+  [type, data[0, datalen]]
 end
 def fcgi_param_siz(str)
   len = str.bytesize
@@ -116,7 +130,9 @@ def fcgi_param_siz(str)
   end
 end
 def fcgi_params(params)
-  params.map { |key, value| "#{fcgi_param_siz(key)}#{fcgi_param_siz(value)}#{key}#{value}" }.join
+  params.inject([]) { |ary, (key, value)|
+    ary.push(fcgi_param_siz(key), fcgi_param_siz(value), key, value)
+  }
 end
 
 begin
