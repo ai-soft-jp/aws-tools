@@ -1,0 +1,206 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'socket'
+require 'stringio'
+require 'timeout'
+require 'optparse'
+
+FCGI_HEADER_LEN = 8
+FCGI_VERSION_1 = 1
+FCGI_BEGIN_REQUEST = 1
+FCGI_ABORT_REQUEST = 2
+FCGI_END_REQUEST = 3
+FCGI_PARAMS = 4
+FCGI_STDIN = 5
+FCGI_STDOUT = 6
+FCGI_STDERR = 7
+FCGI_DATA = 8
+FCGI_GET_VALUES = 9
+FCGI_GET_VALUES_RESULT = 10
+FCGI_UNKNOWN_TYPE = 11
+FCGI_MAXTYPE = FCGI_UNKNOWN_TYPE
+FCGI_RESPONDER = 1
+FCGI_AUTHORIZER = 2
+FCGI_FILTER = 3
+
+def crit(*mesg)
+  puts *mesg
+  exit 2
+end
+def warn(*mesg)
+  puts *mesg
+  exit 1
+end
+def die(*mesg)
+  $stderr.puts *mesg
+  exit 255
+end
+
+opts = {
+  crittime: 10,
+  warntime: Float::INFINITY,
+  hostname: '',
+  path: '/ping',
+  params: [],
+}
+
+o = OptionParser.new
+o.on('-H HOSTADDRESS', "Hostname (TCP) or Path (UNIX)") { |v| opts[:hostname] = v }
+o.on('-p PORT', "Port number (TCP)") { |v| opts[:port] = v }
+o.on('-4', "Force IPv4 (TCP)") { opts[:ipv4] = true }
+o.on('-6', "Force IPv6 (TCP)") { opts[:ipv6] = true }
+o.on('-u URI', "FastCGI ping URI (default: /ping)") { |v| opts[:path] = v }
+o.on('-s STRING', "Check response contains STRING") { |v| opts[:check] = v }
+o.on('-A NAME=VALUE', /\A\w+=.*\z/, "Add param to request") { |v| opts[:params] << v }
+o.on('-w WARN', Float, "Timeout seconds for WARNING (default: N/A)") { |v| opts[:warntime] = v }
+o.on('-c CRIT', Float, "Timeout seconds for CRITICAL (default: 10)") { |v| opts[:crittime] = v }
+o.on('-v', "Output details") { opts[:verbose] = true }
+o.on('-h', "Show this help") { puts o; exit 255 }
+begin
+  o.parse!(ARGV)
+rescue => e
+  die e.message
+end
+
+opts[:unix] = opts[:hostname].start_with?('/')
+case
+when opts[:hostname].empty?
+  die "Missing hostname"
+when opts[:unix]
+  if opts[:port] || opts[:ipv4] || opts[:ipv6]
+    die "UNIX socket does not need port nor family"
+  end
+when !opts[:port]
+  die "Missing port number"
+when opts[:ipv4] && opts[:ipv6]
+  die "Do not use both IPv4 and IPv6"
+end
+
+params = {
+  "REQUEST_METHOD" => "GET",
+  "SCRIPT_NAME" => opts[:path],
+  "SCRIPT_FILENAME" => opts[:path],
+  "GATEWAY_INTERFACE" => "CGI/1.1",
+}
+opts[:params].each do |param|
+  key, value = param.split('=', 2)
+  params[key] = value
+end
+
+FastCGIProtocolError = Class.new(RuntimeError)
+
+def fcgi_fail(mesg)
+  raise FastCGIProtocolError, mesg
+end
+def fcgi_send(sock, type, data)
+  sock.write([FCGI_VERSION_1, type, 1, data.bytesize, 0].pack('CCnnCx'), data)
+end
+def fcgi_recv(sock)
+  r = sock.read(FCGI_HEADER_LEN)
+  fcgi_fail("unexpected header length") unless r && r.bytesize == FCGI_HEADER_LEN
+  fver, type, reqid, datalen, padlen = r.unpack('CCnnCx')
+  fcgi_fail("unexpected protocol version") unless fver == FCGI_VERSION_1 && reqid == 1
+  data = sock.read(datalen)
+  fcgi_fail("data length too short") unless data.bytesize == datalen
+  pad = padlen > 0 ? sock.read(padlen) : ""
+  fcgi_fail("pad length too short") unless pad.bytesize == padlen
+  [type, data]
+end
+def fcgi_param_siz(str)
+  len = str.bytesize
+  if len < 0x80
+    [len].pack('C')
+  else
+    [len | 0x80000000].pack('V')
+  end
+end
+def fcgi_params(params)
+  params.map { |key, value| "#{fcgi_param_siz(key)}#{fcgi_param_siz(value)}#{key}#{value}" }.join
+end
+
+begin
+  Timeout.timeout(opts[:crittime]) do
+    starttime = Time.now
+
+    if opts[:unix]
+      sock = UNIXSocket.new(opts[:hostname])
+    elsif opts[:ipv4]
+      addr, = Socket.getaddrinfo(opts[:hostname], opts[:port], Socket::AF_INET, Socket::SOCK_STREAM)
+      crit "Name or service not known" unless addr
+      sock = TCPSocket.new(addr[3], addr[1])
+    elsif opts[:ipv6]
+      addr, = Socket.getaddrinfo(opts[:hostname], opts[:port], Socket::AF_INET6, Socket::SOCK_STREAM)
+      crit "Name or service not known" unless addr
+      sock = TCPSocket.new(addr[3], addr[1])
+    else
+      sock = TCPSocket.new(opts[:hostname], opts[:port])
+    end
+
+    begin
+      fcgi_send(sock, FCGI_BEGIN_REQUEST, [FCGI_RESPONDER, 0].pack('nCx5'))
+      fcgi_send(sock, FCGI_PARAMS, fcgi_params(params))
+      fcgi_send(sock, FCGI_PARAMS, "")
+      fcgi_send(sock, FCGI_STDIN, "")
+      stdout = +""
+      stderr = +""
+      status = proto = nil
+      while packet = fcgi_recv(sock)
+        type, data = packet
+        case type
+        when FCGI_STDOUT
+          stdout << data
+        when FCGI_STDERR
+          stderr << data
+        when FCGI_END_REQUEST
+          status, proto = packet[1].unpack('VCx3')
+          break
+        end
+      end
+    ensure
+      sock.close
+    end
+
+    finishtime = Time.now
+
+    unless status == 0 && proto == 0
+      puts "FCGI CRITICAL: malformed FastCGI response: #{status.inspect}/#{proto.inspect}"
+      puts "stderr: #{stderr}" if stderr != ""
+      exit 2
+    end
+
+    r = StringIO.new(stdout)
+    header = {}
+    lasth = nil
+    while line = r.gets("\r\n")
+      line.chomp!
+      break if line == ""
+      if /\A\s+/ =~ line
+        lasth << "\n#{$'}"
+      else
+        key, value = line.split(/:\s*/, 2)
+        lasth = header[key.downcase] = value
+      end
+    end
+    body = r.read
+
+    if /^(\d\d\d) / =~ header["status"] && $1.to_i != 200
+      puts "FCGI WARNING: #{header["status"]}"
+      puts "stdout: #{body}" if body != ""
+      puts "stderr: #{stderr}" if stderr != ""
+      exit 1
+    end
+
+    if opts[:check] && !body.include?(opts[:check])
+      crit "FCGI CRITICAL: response does not include #{opts[:check].inspect}"
+    end
+
+    runtime = finishtime.to_f - starttime.to_f
+    warnp = runtime >= opts[:warntime]
+    printf "FCGI %s: %.2f msec\n", warnp ? "WARNING" : "OK", runtime * 1000
+    puts body if opts[:verbose]
+    exit warnp ? 1 : 0
+  end
+rescue => e
+  crit "#{e.class}: #{e.message}"
+end
