@@ -71,7 +71,7 @@ end while token != ''
 if config[:archive] && !archives.empty?
   archives.each_slice(50) do |finding_ids|
     gd.archive_findings(
-      detectod_id: detector_id,
+      detector_id: detector_id,
       finding_ids: finding_ids
     )
   end
