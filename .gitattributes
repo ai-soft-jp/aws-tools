@@ -1,0 +1,14 @@
+*        text=auto eol=lf
+*.txt    text
+*.rb     text
+*.html   text
+*.haml   text
+*.js     text
+*.css    text
+*.jpg    -text
+*.gif    -text
+*.png    -text
+*.pdf    -text
+*.bat    text eol=crlf
+*.eml    text eol=crlf
+*.sh     text eol=lf
