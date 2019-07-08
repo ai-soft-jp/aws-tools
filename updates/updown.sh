@@ -39,6 +39,7 @@ $(who -b -u -T)
 AZ=$(_meta placement/availability-zone)
 export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-${AZ%[a-z]}}
 export AWS_DEFAULT_OUTPUT=text
+export PATH="$PATH:/snap/bin"
 
 if [[ "$TOPIC" != arn:aws:sns:* ]]; then
   TOPIC=$(aws sns list-topics --query "Topics[?ends_with(TopicArn,\`:${TOPIC}\`)].TopicArn")
