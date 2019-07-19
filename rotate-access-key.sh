@@ -61,7 +61,7 @@ for profile in "${PROFILES[@]}"; do
   LAST_ROTATE=$(aws configure get last_rotate_time 2>/dev/null)
   if [[ -n "$LAST_ROTATE" ]]; then
     _log -n ">> Last rotate: $LAST_ROTATE: "
-    LAST_ROTATE_EPOCH=$(date '+%s' -d "$LAST_ROTATE")
+    LAST_ROTATE_EPOCH=$(date '+%s' -d "${LAST_ROTATE/T/ }")
     (( $LAST_ROTATE_EPOCH > $ROTATE_THR )) && { _log "Not expired; Skip."; continue; }
     _log "Expired; Rotateion needed."
   else
