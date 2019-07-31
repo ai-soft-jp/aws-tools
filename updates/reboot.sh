@@ -5,7 +5,7 @@
 # Requirements: awscli, jq, yum-utils (rhel)
 #
 _die() { echo >&2 "$@"; exit 1; }
-_usage() { _die "usage: $0 [-s SECS] [-f] [-n] <topic-name or topic-arn>"; }
+_usage() { _die "usage: $0 [-s SECS] [-r aws|shutdown][-f] [-n] <topic-name or topic-arn>"; }
 _meta() { curl -s "http://169.254.169.254/latest/meta-data/$1" || _die "Failed to fetch EC2 metadata $1"; }
 _json() {
   local arg; local json=""; local args=(); local n=0
@@ -18,11 +18,13 @@ _json() {
 }
 
 REBOOT=no
+REBOOTCMD=aws
 DRYRUN=no
 SLEEP=0
-while getopts s:fn OPT; do
+while getopts s:r:fn OPT; do
   case $OPT in
     s ) SLEEP=$OPTARG ;;
+    r ) REBOOTCMD=$OPTARG ;;
     f ) REBOOT=yes ;;
     n ) DRYRUN=yes ;;
     * ) _usage ;;
@@ -32,6 +34,16 @@ shift $((OPTIND - 1))
 
 TOPIC="$1"
 [[ -z "$TOPIC" ]] && _usage
+
+AZ=$(_meta placement/availability-zone)
+INSTANCEID=$(_meta instance-id)
+
+# Check -r
+case $REBOOTCMD in
+  aws      ) REBOOTCMD="aws ec2 reboot-instances --instance-ids $INSTANCEID" ;;
+  shutdown ) REBOOTCMD="shutdown -r now" ;;
+  * ) _die "Unknown reboot command: $REBOOTCMD" ;;
+esac
 
 # Check OS
 . /etc/os-release
@@ -58,7 +70,6 @@ else
   [[ $? = 0 ]] || exit
 fi
 
-AZ=$(_meta placement/availability-zone)
 export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-${AZ%[a-z]}}
 export AWS_DEFAULT_OUTPUT=text
 export PATH="$PATH:/snap/bin"
@@ -76,7 +87,7 @@ SUBJECT="[${HOSTNAME}] System reboot attempted"
 JSON=$(_json \
   notificationSource=ec2 \
   hostname="$HOSTNAME" \
-  instanceId="$(_meta instance-id)" \
+  instanceId="$INSTANCEID" \
   localIpv4="$(_meta local-ipv4)" \
   publicIpv4="$(_meta public-ipv4)" \
   availabilityZone="$AZ" \
@@ -86,4 +97,6 @@ SNSJSON=$(_json email="$REBOOTTEXT" default="$JSON")
 
 aws sns publish --topic-arn "$TOPIC" --subject "$SUBJECT" \
     --message "$SNSJSON" --message-structure json >/dev/null
-[[ $DRYRUN = yes ]] || shutdown -r -f +5 "Automatic reboot attempted after 5 mins." 2>/dev/null
+wall "Automatic reboot attempted after 5 mins."
+[[ $DRYRUN = yes ]] && _die "DRYRUN: $REBOOTCMD"
+echo "$REBOOTCMD" | at 'now + 5 minutes' 2>/dev/null
