@@ -5,7 +5,7 @@
 # Requirements: awscli, jq, yum-utils (rhel)
 #
 _die() { echo >&2 "$@"; exit 1; }
-_usage() { _die "usage: $0 [-s SECS] [-r aws|shutdown][-f] [-n] <topic-name or topic-arn>"; }
+_usage() { _die "usage: $0 [-s SECS] [-r aws|shutdown] [-f] [-n] <topic-name or topic-arn>"; }
 _meta() { curl -s "http://169.254.169.254/latest/meta-data/$1" || _die "Failed to fetch EC2 metadata $1"; }
 _json() {
   local arg; local json=""; local args=(); local n=0
@@ -97,6 +97,6 @@ SNSJSON=$(_json email="$REBOOTTEXT" default="$JSON")
 
 aws sns publish --topic-arn "$TOPIC" --subject "$SUBJECT" \
     --message "$SNSJSON" --message-structure json >/dev/null
-wall "Automatic reboot attempted after 5 mins."
+wall "Automatic reboot attempted after 5 mins." >/dev/null 2>&1
 [[ $DRYRUN = yes ]] && _die "DRYRUN: $REBOOTCMD"
-echo "$REBOOTCMD" | at 'now + 5 minutes' 2>/dev/null
+echo "$REBOOTCMD" | at -m 'now + 5 minutes' 2>/dev/null
