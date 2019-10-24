@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin/:/snap/bin
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
 export LANG=C
 
 _die() { echo >&2 "$@"; exit 1; }
@@ -22,8 +22,8 @@ while getopts c:t:vh OPTNAME; do
     h ) _usage ;;
     * ) _usage ;;
   esac
-  shift $((OPTIND - 1))
 done
+shift $((OPTIND - 1))
 
 # check errors
 (( $DAYS > 0 )) >/dev/null 2>&1 || _die "Rotation days must be positive: $DAYS"
@@ -40,7 +40,7 @@ unset AWS_SESSION_TOKEN
 
 # profiles
 PROFILES=("$@")
-[[ -z "${PROFILES[@]}" ]] && PROFILES=("$AWS_DEFAULT_PROFILE")
+[[ -z "${PROFILES[@]}" ]] && PROFILES=($AWS_DEFAULT_PROFILE)
 [[ -z "${PROFILES[@]}" ]] && PROFILES=(default)
 
 # preparation
@@ -51,11 +51,16 @@ BACKEDUP=""
 ROTATED=0
 for profile in "${PROFILES[@]}"; do
   [[ -z "$profile" ]] && continue
-  export AWS_DEFAULT_PROFILE="$profile"
+  if [[ "$profile" = default ]]; then
+    unset AWS_DEFAULT_PROFILE
+  else
+    export AWS_DEFAULT_PROFILE="$profile"
+  fi
   _log "Processing profile $profile."
 
   ACCESS_KEY=$(aws configure get aws_access_key_id 2>/dev/null)
   [[ -z "$ACCESS_KEY" ]] && { _log ">> Access Key: Not Found; Skip."; continue; }
+  [[ $ACCESS_KEY == AKIA* ]] || { _log ">> Access Key is NOT AKI; Skip."; continue; }
   _log ">> Access Key: $ACCESS_KEY"
 
   LAST_ROTATE=$(aws configure get last_rotate_time 2>/dev/null)
@@ -86,10 +91,11 @@ for profile in "${PROFILES[@]}"; do
   _log ">> New Access Key: $NEW_ACCESS_KEY"
 
   if [[ -z "$BACKEDUP" ]]; then
-    rm -f "${AWS_SHARED_CREDENTIALS_FILE}.bak" "${AWS_CONFIG_FILE}.bak"
-    cp -p "$AWS_SHARED_CREDENTIALS_FILE" "${AWS_SHARED_CREDENTIALS_FILE}.bak"
-    cp -p "$AWS_CONFIG_FILE" "${AWS_CONFIG_FILE}.bak"
-    _log "!!! Backup created: ${AWS_CONFIG_FILE}.bak, ${AWS_SHARED_CREDENTIALS_FILE}.bak"
+    for f in "$AWS_SHARED_CREDENTIALS_FILE" "$AWS_CONFIG_FILE"; do
+      rm -f "${f}.bak"
+      cp -p "$f" "${f}.bak"
+      _log "!!! Backup created: ${f}.bak"
+    done
     BACKEDUP=true
   fi
 
