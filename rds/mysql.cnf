@@ -1,0 +1,3 @@
+[client]
+ssl-mode = VERIFY_IDENTITY
+ssl-ca = /etc/ssl/rds-combined-ca-bundle.pem
