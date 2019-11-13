@@ -1,0 +1,4 @@
+[client]
+ssl = true
+ssl-ca = /etc/ssl/rds-combined-ca-bundle.pem
+ssl-verify-server-cert = true
