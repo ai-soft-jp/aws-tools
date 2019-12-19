@@ -4,9 +4,13 @@
 # Supported platforms: Ubuntu, Amazon Linux
 # Requirements: awscli, jq, yum-utils (rhel)
 #
+META="http://169.254.169.254/latest"
 _die() { echo >&2 "$@"; exit 1; }
 _usage() { _die "usage: $0 <topic-name or topic-arn> <start or stop>"; }
-_meta() { curl -s "http://169.254.169.254/latest/meta-data/$1" || _die "Failed to fetch EC2 metadata $1"; }
+_meta() {
+  curl -sf --connect-timeout 3 "$META/meta-data/$1" -H "X-aws-ec2-metadata-token: $METATOKEN" || \
+  _die "Failed to fetch EC2 metadata $1";
+}
 _json() {
   local arg; local json=""; local args=(); local n=0
   for arg; do
@@ -35,6 +39,9 @@ MESSAGETEXT="\
 $(uptime)
 $(who -b -u -T)
 "
+
+METATOKEN=$(curl -s -X PUT "$META/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+[[ -n "$METATOKEN" ]] || _die "Can't access instance meta-data."
 
 AZ=$(_meta placement/availability-zone)
 export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-${AZ%[a-z]}}
