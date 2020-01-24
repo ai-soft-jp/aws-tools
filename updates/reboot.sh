@@ -106,4 +106,4 @@ aws sns publish --topic-arn "$TOPIC" --subject "$SUBJECT" \
     --message "$SNSJSON" --message-structure json >/dev/null
 wall "Automatic reboot attempted after 5 mins." >/dev/null 2>&1
 [[ $DRYRUN = yes ]] && _die "DRYRUN: $REBOOTCMD"
-echo "$REBOOTCMD" | at -m 'now + 5 minutes' 2>/dev/null
+echo "$REBOOTCMD > /dev/null" | at -m 'now + 5 minutes' 2>/dev/null
