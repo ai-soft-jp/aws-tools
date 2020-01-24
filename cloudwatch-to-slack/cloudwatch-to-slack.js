@@ -406,11 +406,13 @@ function AmazonIpSpaceChangedMessage(subject, message) {
 
 function SnsMessage(snsMessage) {
     if (snsMessage.Subject === 'AWS CloudFormation Notification') {
+        if (DEBUG) console.log(`CloudFormation Message: ${snsMessage.Message}`);
         return CloudFormationMessage(snsMessage.Message);
     }
     try {
         const subject = snsMessage.Subject;
         const message = JSON.parse(snsMessage.Message);
+        if (DEBUG) console.log(`SNS Message: ${JSON.stringify(message, null, '  ')}`);
         if (snsMessage.TopicArn === 'arn:aws:sns:us-east-1:806199016981:AmazonIpSpaceChanged') {
             return AmazonIpSpaceChangedMessage(subject, message);
         }
@@ -431,7 +433,6 @@ function SnsMessage(snsMessage) {
 }
 
 function buildMessage(event) {
-    if (DEBUG) console.log(`incoming event: ${JSON.stringify(event, null, '  ')}`);
     if (event.Records && event.Records[0].EventSource === 'aws:sns') {
         return SnsMessage(event.Records[0].Sns);
     }
@@ -454,7 +455,7 @@ async function processEvent(event) {
         return;
     }
     if (!slackMessage) {
-        console.error('Failed to parse message');
+        console.error(`Failed to parse event: ${JSON.stringify(event, null, '  ')}`);
         return;
     }
     slackMessage.channel = getSlackChannel(event);
