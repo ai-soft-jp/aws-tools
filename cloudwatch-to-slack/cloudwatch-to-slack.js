@@ -253,18 +253,12 @@ function CodeDeployMessage(subject, message) {
 
 async function RunCommandMessage(subject, message) {
     const SSM = new AWS.SSM();
-    const invocation = (() => {
-        try {
-            return await SSM.getCommandInvocation({
-                CommandId: message.commandId,
-                InstanceId: message.instanceId
-            }).promise();
-        } catch (e) {
-            return {
-                ResponseCode: `ERROR: ${e.code}`,
-            };
-        }
-    })();
+    const invocation = await SSM.getCommandInvocation({
+        CommandId: message.commandId,
+        InstanceId: message.instanceId
+    }).promise().catch(e => {
+        return {ResponseCode: `ERROR: ${e.code}`};
+    });
 
     const slackMessage = {
         username: 'Systems Manager',
