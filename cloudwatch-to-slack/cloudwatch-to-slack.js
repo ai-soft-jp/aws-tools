@@ -89,6 +89,10 @@ const healthTypeColor = {
     scheduledChange: '#888888',
     accountNotification: '#439FE0',
 };
+const sourceMap = {
+    'aws.health': HealthMessage,
+    'aws.guardduty': GuardDutyMessage,
+};
 const propMap = {
     'AlarmName': CloudWatchMessage,
     'Source ID': RDSMessage,
@@ -357,6 +361,37 @@ function HealthMessage(subject, message) {
     };
 }
 
+function GuardDutyMessage(subject, message) {
+    const detail = message.detail, service = detail.service;
+    const url = `https://${message.region}.console.aws.amazon.com/guardduty/home?region=${message.region}#/findings?macros=current&fId=${detail.id}`;
+    let color;
+    if (detail.severity <= 0 || detail.severity >= 9.0) {
+        color = '#000000';
+    } else if (detail.severity < 4.0) { // 0.1 - 3.9
+        // color = '#888888';
+        return 'SKIP';
+    } else if (detail.severity < 7.0) { // 4.0 - 6.9
+        color = 'warning';
+    } else {                            // 7.0 - 8.9
+        color = 'danger';
+    }
+    let text = detail.description, ts;
+    if (service) {
+        text = `${text} _(Count ${detail.service.count})_`;
+        ts = service.eventLastSeen || service.eventFirstSeen;
+    }
+    return {
+        username: 'Amazon GuardDuty',
+        attachments: [{
+            color: color,
+            title: detail.title,
+            text: `${text}\n<${url}|Click here for details>`,
+            footer: `${message.region} - ${detail.type}`,
+            ts: epoch(ts || detail.updatedAt || detail.createdAt),
+        }],
+    };
+}
+
 function AmazonIpSpaceChangedMessage(subject, message) {
     return {
         username: 'AWS',
@@ -379,8 +414,8 @@ function SnsMessage(snsMessage) {
         if (snsMessage.TopicArn === 'arn:aws:sns:us-east-1:806199016981:AmazonIpSpaceChanged') {
             return AmazonIpSpaceChangedMessage(subject, message);
         }
-        if (message.source === 'aws.health') {
-            return HealthMessage(subject, message);
+        for (const [source, func] of Object.entries(sourceMap)) {
+            if (message.source === source) return func(subject, message);
         }
         for (const [prop, func] of Object.entries(propMap)) {
             if (message[prop]) return func(subject, message);
@@ -414,6 +449,10 @@ function getSlackChannel(event) {
 
 async function processEvent(event) {
     const slackMessage = await buildMessage(event);
+    if (slackMessage === 'SKIP') {
+        // skip notification
+        return;
+    }
     if (!slackMessage) {
         console.error('Failed to parse message');
         return;
