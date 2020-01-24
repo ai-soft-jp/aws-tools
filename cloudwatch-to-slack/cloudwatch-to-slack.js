@@ -249,16 +249,24 @@ function CodeDeployMessage(subject, message) {
 
 async function RunCommandMessage(subject, message) {
     const SSM = new AWS.SSM();
-    const invokation = await SSM.getCommandInvocation({
-        CommandId: message.commandId,
-        InstanceId: message.instanceId
-    }).promise();
+    const invocation = (() => {
+        try {
+            return await SSM.getCommandInvocation({
+                CommandId: message.commandId,
+                InstanceId: message.instanceId
+            }).promise();
+        } catch (e) {
+            return {
+                ResponseCode: `ERROR: ${e.code}`,
+            };
+        }
+    })();
 
     const slackMessage = {
         username: 'Systems Manager',
         icon_url: `${iconBase}/EC2SystemsManager.png`,
         attachments: [{
-            title: `${message.status}: ${message.documentName} at ${message.instanceId} (code: ${invokation.ResponseCode})`,
+            title: `${message.status}: ${message.documentName} at ${message.instanceId} (code: ${invocation.ResponseCode})`,
             color: runCommandColor[message.status],
             fields: [],
             footer: message.commandId,
@@ -266,8 +274,8 @@ async function RunCommandMessage(subject, message) {
         }],
     };
     for (const [field, label] of [['StandardOutputContent', 'stdout'], ['StandardErrorContent', 'stderr']]) {
-        if (invokation[field]) {
-            slackMessage.attachments[0].fields.push({title: label, value: invokation[field], short: false});
+        if (invocation[field]) {
+            slackMessage.attachments[0].fields.push({title: label, value: invocation[field], short: false});
         }
     }
     return slackMessage;
