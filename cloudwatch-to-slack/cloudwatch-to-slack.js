@@ -476,7 +476,7 @@ async function processEvent(event) {
 exports.handler = async (event) => {
     if (!hookUrl && kmsEncryptedHookUrl && kmsEncryptedHookUrl !== '<kmsEncryptedHookUrl>') {
         const kms = new AWS.KMS();
-        const cipherText = {CiphertextBlob: new Buffer(kmsEncryptedHookUrl, 'base64')};
+        const cipherText = {CiphertextBlob: Buffer.from(kmsEncryptedHookUrl, 'base64')};
         const data = await kms.decrypt(cipherText).promise();
         hookUrl = `https://${data.Plaintext.toString('ascii')}`;
     }
