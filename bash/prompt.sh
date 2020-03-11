@@ -52,7 +52,13 @@ __prompt_setup() {
     fi
   fi
 
-  [[ -n "$ROLE_COMMAND" ]] && $ROLE_COMMAND
+  if [[ -n "$ROLE_COMMAND" ]]; then
+    ROLE_NAME=$(eval "$ROLE_COMMAND")
+    if [[ "$ROLE_NAME" == *\|* ]]; then
+      ROLE_COLOR=${ROLE_NAME%%|*}
+      ROLE_NAME=${ROLE_NAME#*|}
+    fi
+  fi
   if [[ -n "$ROLE_NAME" ]]; then
     if [[ -n "$ROLE_COLOR" ]]; then
       PS1BUILD="$PS1BUILD"'\[\e['"$ROLE_COLOR"'m\]'"$ROLE_NAME"'\[\e[m\] '
@@ -61,7 +67,13 @@ __prompt_setup() {
     fi
   fi
 
-  [[ -n "$STATUS_COMMAND" ]] && $STATUS_COMMAND
+  if [[ -n "$STATUS_COMMAND" ]]; then
+    STATUS_NAME=$(eval "$STATUS_COMMAND")
+    if [[ "$STATUS_NAME" == *\|* ]]; then
+      STATUS_COLOR=${STATUS_NAME%%|*}
+      STATUS_NAME=${STATUS_NAME#*|}
+    fi
+  fi
   if [[ -n "$STATUS_NAME" ]]; then
     if [[ -n "$STATUS_COLOR" ]]; then
       PS1BUILD="$PS1BUILD"'\[\e['"$STATUS_COLOR"'m\]'"$STATUS_NAME"'\[\e[m\] '
