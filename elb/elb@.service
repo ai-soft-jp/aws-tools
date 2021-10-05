@@ -1,0 +1,15 @@
+[Unit]
+Description=Elatic Load Balancing Target registration
+Requires=nginx.service
+After=nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aws-tools/elb/elbctl.sh start %i
+ExecStop=/opt/aws-tools/elb/elbctl.sh stop %i
+RemainAfterExit=yes
+TimeoutStartSec=10min
+TimeoutStopSec=10min
+
+[Install]
+WantedBy=multi-user.target
