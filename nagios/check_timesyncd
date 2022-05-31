@@ -1,0 +1,18 @@
+#!/bin/bash
+
+_crit() { echo "CRITICAL - $1"; exit 2; }
+_warn() { echo "WARNING - $1"; exit 1; }
+_ok() { echo "OK - $1"; exit 0; }
+
+_get() {
+    local res
+    res=$(echo "$2" | grep "^$1=" 2>/dev/null)
+    echo "${res#*=}"
+}
+
+STATUS=$(timedatectl show)
+[ $(_get NTP "$STATUS") = yes ] || _crit "NTP disabled"
+[ $(_get NTPSynchronized "$STATUS") = yes ] || _warn "Not Synchronized"
+
+SERVERS=$(_get SystemNTPServers "$(timedatectl show-timesync)")
+_ok "$SERVERS"
