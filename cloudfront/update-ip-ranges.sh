@@ -29,7 +29,8 @@ done
 
 # constants
 
-EC2META=http://169.254.169.254/latest/meta-data/network/interfaces/macs
+EC2META=http://169.254.169.254/latest
+MACSMETA=$EC2META/meta-data/network/interfaces/macs
 IPRANGES=https://ip-ranges.amazonaws.com/ip-ranges.json
 VPCBLOCKS4=( vpc-ipv4-cidr-block vpc-ipv4-cidr-blocks )
 VPCBLOCKS6=( vpc-ipv6-cidr-blocks )
@@ -117,6 +118,11 @@ LISTTMP=$(mktemp -p $CACHEDIR)
 CONFTMP=$(mktemp)
 trap 'rm -f $JSONTMP $METATMP $LISTTMP $CONFTMP' EXIT
 
+CURL=$(which curl)
+TOKEN=$($CURL -f -s -XPUT $EC2META/api/token -H'X-aws-ec2-metadata-token-ttl-seconds: 21600')
+curl() { $CURL -H"X-aws-ec2-metadata-token: $TOKEN" "$@"; }
+curl -f -s $EC2META/instance-id >/dev/null || _die "Failed to get EC2 metadata"
+
 _mapheader() {
   local VAR=$(grep -i "^$1:" | sed 's/[^:]*:[[:space:]]*//;s/[[:space:]]*$//')
   [[ -n "$VAR" ]] && CURLHEADER=("${CURLHEADER[@]}" -H "$2: $VAR")
@@ -154,10 +160,10 @@ _checkupdate
 
 _genlist() {
   _debug "generating from VPC blocks"
-  curl -f -s $EC2META/ | awk '{print $0}' | \
+  curl -f -s $MACSMETA/ | awk '{print $0}' | \
   while read mac; do
     for block in "${VPCBLOCKS[@]}"; do
-      curl -f -s $EC2META/$mac$block | awk '$1 {print $1}'
+      curl -f -s $MACSMETA/$mac$block | awk '$1 {print $1}'
     done
   done | sort | uniq
 
