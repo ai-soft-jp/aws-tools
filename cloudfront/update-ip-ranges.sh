@@ -121,7 +121,7 @@ trap 'rm -f $JSONTMP $METATMP $LISTTMP $CONFTMP' EXIT
 CURL=$(which curl)
 TOKEN=$($CURL -f -s -XPUT $EC2META/api/token -H'X-aws-ec2-metadata-token-ttl-seconds: 21600')
 curl() { $CURL -H"X-aws-ec2-metadata-token: $TOKEN" "$@"; }
-curl -f -s $EC2META/instance-id >/dev/null || _die "Failed to get EC2 metadata"
+curl -f -s $EC2META/meta-data/instance-id >/dev/null || _die "Failed to get EC2 metadata"
 
 _mapheader() {
   local VAR=$(grep -i "^$1:" | sed 's/[^:]*:[[:space:]]*//;s/[[:space:]]*$//')
