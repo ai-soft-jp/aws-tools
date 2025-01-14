@@ -1,0 +1,8 @@
+[Unit]
+Description=run update-ip-ranges daily
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=OPTIONS=
+ExecStart=/opt/aws-tools/cloudfront/update-ip-ranges.sh $OPTIONS

@@ -11,11 +11,12 @@ _usage() { cat <<EOS >&2; exit 1; }
 usage: $0 [-s SERVER] [-o FILENAME] [-r RELOADCMD] [-h]
 
 options:
-  -s SERVER             server type; apache2.2, apache[2.4], nginx (default: apache2.4)
+  -s SERVER             server type; apache, nginx (default: nginx)
   -4                    IPv4 only (default: include IPv6)
-  -o FILENAME           output filename for proxy list
-  -a FILENAME           output filename for access list
-  -r RELOADCMD          invoke command on update
+  -d OUTDIR             output directory (default: auto detect)
+  -o FILENAME           output filename for proxy list (default: OUTDIR/cf_proxy.conf)
+  -a FILENAME           output filename for access list (default: OUTDIR/cf_access.conf)
+  -r RELOADCMD          invoke command on update (default: auto detect)
   -f                    force to regenerate
   -v                    enable debug output
   -h                    show this help
@@ -39,18 +40,20 @@ JQFILTER6='.ipv6_prefixes[] | select(.service=="CLOUDFRONT") | .ipv6_prefix'
 
 # parse options
 
-SERVER=apache
+SERVER=nginx
 MODE=proxy
 IPVER=6
+OUTDIR=
 PROXYOUT=
 ACCESOUT=
 FORCE=no
 VERBOSE=no
 RELOADCMD=
-while getopts s:o:a:r:h4fv OPT; do
+while getopts s:d:o:a:r:h4fv OPT; do
   case $OPT in
     s ) SERVER="$OPTARG" ;;
     4 ) IPVER=4 ;;
+    d ) OUTDIR="$OPTARG" ;;
     o ) PROXYOUT="$OPTARG" ;;
     a ) ACCESOUT="$OPTARG" ;;
     f ) FORCE=yes ;;
@@ -67,22 +70,39 @@ else
   _debug() { :; }
 fi
 
+_checkdir() {
+  local dir
+  for dir in "$@"; do
+    if [[ -n "$dir" && -x "$dir" ]]; then
+      echo "$dir"
+      return
+    fi
+  done
+}
+_checkreload() {
+  local service
+  for service in "$@"; do
+    if /bin/systemctl is-enabled $service.service >/dev/null 2>&1; then
+      echo "/bin/systemctl reload $service.service"
+      return
+    fi
+  done
+}
+
 case $SERVER in
   apache | apache24 | apache2.4 )
     _debug "server is Apache 2.4"
     PROXYHDR=$'RemoteIPHeader X-Forwarded-For'
+    : ${OUTDIR:=$(_checkdir /etc/httpd /etc/apache2)}
+    : ${RELOADCMD:=$(_checkreload httpd apache2)}
     MKPROXY='{print "RemoteIPTrustedProxy " $1}'
     MKACCES='{print "Require ip " $1}'
-    ;;
-  apache22 | apache2.2 )
-    _debug "server is Apache 2.2"
-    PROXYHDR=$'RemoteIPHeader X-Forwarded-For'
-    MKPROXY='{print "RemoteIPTrustedProxy " $1}'
-    MKACCES='{print "Allow from " $1}'
     ;;
   nginx )
     _debug "server is nginx"
     PROXYHDR=$'real_ip_header X-Forwarded-For;\nreal_ip_recursive on;'
+    : ${OUTDIR:=$(_checkdir /etc/nginx /opt/nginx/conf)}
+    : ${RELOADCMD:=$(_checkreload nginx)}
     MKPROXY='{print "set_real_ip_from " $1 ";"}'
     MKACCES='{print "allow " $1 ";"}'
     ;;
@@ -103,6 +123,10 @@ case $IPVER in
     JQFILTERS=("$JQFILTER4")
     ;;
 esac
+_debug "output directory: ${OUTDIR:-N/A}"
+_debug "proxy list: ${PROXYOUT:=${OUTDIR:?specify -d option}/cf_proxy.conf}"
+_debug "access list: ${ACCESOUT:=${OUTDIR:?specify -d option}/cf_access.conf}"
+_debug "reload command: ${RELOADCMD:-N/A}"
 
 # setup
 
@@ -121,7 +145,7 @@ trap 'rm -f $JSONTMP $METATMP $LISTTMP $CONFTMP' EXIT
 CURL=$(which curl)
 TOKEN=$($CURL -f -s -XPUT $EC2META/api/token -H'X-aws-ec2-metadata-token-ttl-seconds: 21600')
 curl() { $CURL -H"X-aws-ec2-metadata-token: $TOKEN" "$@"; }
-curl -f -s $EC2META/meta-data/instance-id >/dev/null || _die "Failed to get EC2 metadata"
+curl -f -s $EC2META/meta-data/instance-id >/dev/null
 
 _mapheader() {
   local VAR=$(grep -i "^$1:" | sed 's/[^:]*:[[:space:]]*//;s/[[:space:]]*$//')

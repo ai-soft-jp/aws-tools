@@ -1,0 +1,9 @@
+[Unit]
+Description=run update-ip-ranges daily
+
+[Timer]
+OnCalendar=*-*-* 00:00
+RandomizedDelaySec=12h
+
+[Install]
+WantedBy=timers.target
