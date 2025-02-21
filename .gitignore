@@ -1,3 +1,4 @@
-# Ignore bundler config.
 /.bundle
 /vendor/bundle
+.yarn
+node_modules
