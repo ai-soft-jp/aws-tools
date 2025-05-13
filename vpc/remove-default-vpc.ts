@@ -16,6 +16,8 @@ import {
   Tag,
   Vpc,
 } from '@aws-sdk/client-ec2';
+import { STS } from '@aws-sdk/client-sts';
+import { defaultProvider } from '@aws-sdk/credential-provider-node';
 import * as readline from 'readline/promises';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
@@ -25,7 +27,7 @@ const args = await yargs(hideBin(process.argv))
   .option('region', {
     type: 'string',
     array: true,
-    description: 'AWS Region to scan',
+    description: 'AWS Regions to scan',
     defaultDescription: 'All regions',
   })
   .option('profile', {
@@ -40,8 +42,12 @@ const args = await yargs(hideBin(process.argv))
   .strict()
   .parse();
 const logger = args.debug ? console : undefined;
+const credentials = defaultProvider({ profile: args.profile, logger });
 
 async function main() {
+  const identity = await getCallerIdentity();
+  console.log(`Account = ${identity.Account}`);
+
   const regions = args.region?.length ? args.region : await getRegions();
 
   const regionsBlank: string[] = [];
@@ -68,13 +74,13 @@ async function main() {
   );
 
   if (regionsBlank.length) {
-    console.log(`No default VPC: ${regionsBlank.join(', ')}`);
+    console.log(`No default VPCs: ${regionsBlank.join(', ')}`);
   }
   if (Object.keys(regionsUsing).length) {
-    console.log(`Using default VPC: ${Object.keys(regionsUsing).join(', ')}`);
+    console.log(`Using default VPCs: ${Object.keys(regionsUsing).join(', ')}`);
   }
   if (Object.keys(regionsDeletable).length) {
-    console.log(`Deletable default VPC: ${Object.keys(regionsDeletable).join(', ')}`);
+    console.log(`Deletable default VPCs: ${Object.keys(regionsDeletable).join(', ')}`);
   } else {
     return;
   }
@@ -86,14 +92,19 @@ async function main() {
     if (['yes'].includes(cont.toLowerCase())) break;
   }
 
-  for (const [region, processor] of Object.entries(regionsDeletable)) {
+  for (const processor of Object.values(regionsDeletable)) {
     console.log('');
     await processor.deleteDefaultVpc();
   }
 }
 
+async function getCallerIdentity() {
+  const sts = new STS({ region: 'us-east-1', credentials, logger });
+  return await sts.getCallerIdentity();
+}
+
 async function getRegions() {
-  const ec2 = new EC2({ region: 'us-east-1', logger });
+  const ec2 = new EC2({ region: 'us-east-1', credentials, logger });
   const res = await ec2.describeRegions();
   return res.Regions!.map((region) => region.RegionName!);
 }
@@ -112,7 +123,7 @@ class ProcessRegion {
   }
 
   constructor(readonly region: string) {
-    this.ec2 = new EC2({ region, logger });
+    this.ec2 = new EC2({ region, credentials, logger });
   }
 
   async getDefaultVpc() {
@@ -302,7 +313,6 @@ class ProcessRegion {
   }
 }
 
-if (args.profile) process.env.AWS_PROFILE = args.profile;
 rl.on('SIGINT', () => {
   process.stdout.write('^C\n');
   process.exit(130);
