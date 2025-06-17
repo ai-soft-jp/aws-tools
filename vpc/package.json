@@ -3,20 +3,14 @@
   "private": true,
   "bin": "remove-default-vpc.js",
   "type": "module",
-  "scripts": {
-    "remove-default-vpc": "tsx remove-default-vpc.ts"
-  },
   "dependencies": {
-    "@aws-sdk/client-ec2": "^3.808.0",
-    "@aws-sdk/client-sts": "^3.808.0",
+    "@aws-sdk/client-ec2": "^3.830.0",
+    "@aws-sdk/client-sts": "^3.830.0",
     "readline": "^1.3.0",
-    "ts-node": "^10.9.2",
-    "tsx": "^4.19.4",
-    "typescript": "^5.8.3",
-    "yargs": "^17.7.2"
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.15.17",
+    "@types/node": "^24.0.3",
     "@types/yargs": "^17.0.33"
   }
 }

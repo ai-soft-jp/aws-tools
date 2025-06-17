@@ -1,6 +1,5 @@
 import {
   EC2,
-  NetworkInterface,
   paginateDescribeEgressOnlyInternetGateways,
   paginateDescribeInternetGateways,
   paginateDescribeNetworkAcls,
@@ -11,10 +10,6 @@ import {
   paginateDescribeSubnets,
   paginateDescribeVpcEndpoints,
   paginateDescribeVpcs,
-  RouteTable,
-  SecurityGroup,
-  Tag,
-  Vpc,
 } from '@aws-sdk/client-ec2';
 import { STS } from '@aws-sdk/client-sts';
 import { defaultProvider } from '@aws-sdk/credential-provider-node';
@@ -22,7 +17,6 @@ import * as readline from 'readline/promises';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const args = await yargs(hideBin(process.argv))
   .option('region', {
     type: 'string',
@@ -44,15 +38,21 @@ const args = await yargs(hideBin(process.argv))
 const logger = args.debug ? console : undefined;
 const credentials = defaultProvider({ profile: args.profile, logger });
 
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+rl.on('SIGINT', () => {
+  process.stdout.write('^C\n');
+  process.exit(130);
+});
+
 async function main() {
   const identity = await getCallerIdentity();
   console.log(`Account = ${identity.Account}`);
 
   const regions = args.region?.length ? args.region : await getRegions();
 
-  const regionsBlank: string[] = [];
-  const regionsUsing: Record<string, NetworkInterface[]> = {};
-  const regionsDeletable: Record<string, ProcessRegion> = {};
+  const regionsBlank = [];
+  const regionsUsing = {};
+  const regionsDeletable = {};
 
   console.log(`*** Scanning regions...`);
   await Promise.all(
@@ -106,23 +106,23 @@ async function getCallerIdentity() {
 async function getRegions() {
   const ec2 = new EC2({ region: 'us-east-1', credentials, logger });
   const res = await ec2.describeRegions();
-  return res.Regions!.map((region) => region.RegionName!);
+  return res.Regions.map((region) => region.RegionName);
 }
 
-function getName(tags?: Tag[]) {
+function getName(tags) {
   const name = tags?.find(({ Key }) => Key === 'Name')?.Value;
   return name ? ` (${name})` : '';
 }
 
 class ProcessRegion {
-  readonly ec2: EC2;
-  private _defaultVpc?: Vpc;
+  #defaultVpc;
 
   get vpcId() {
-    return this._defaultVpc!.VpcId!;
+    return this.#defaultVpc.VpcId;
   }
 
-  constructor(readonly region: string) {
+  constructor(region) {
+    this.region = region;
     this.ec2 = new EC2({ region, credentials, logger });
   }
 
@@ -130,7 +130,7 @@ class ProcessRegion {
     const req = paginateDescribeVpcs({ client: this.ec2 }, {});
     for await (const res of req) {
       const defaultVpc = res.Vpcs?.find((vpc) => vpc.IsDefault);
-      if (defaultVpc) return (this._defaultVpc = defaultVpc);
+      if (defaultVpc) return (this.#defaultVpc = defaultVpc);
     }
   }
 
@@ -139,7 +139,7 @@ class ProcessRegion {
       { client: this.ec2 },
       { Filters: [{ Name: 'vpc-id', Values: [this.vpcId] }] },
     );
-    const enis: NetworkInterface[] = [];
+    const enis = [];
     for await (const res of req) {
       enis.push(...(res.NetworkInterfaces ?? []));
     }
@@ -167,7 +167,7 @@ class ProcessRegion {
       { client: this.ec2 },
       { Filters: [{ Name: 'vpc-id', Values: [this.vpcId] }] },
     );
-    const securityGroups: SecurityGroup[] = [];
+    const securityGroups = [];
     for await (const res of req) {
       securityGroups.push(...(res.SecurityGroups ?? []));
     }
@@ -182,17 +182,17 @@ class ProcessRegion {
     }
   }
 
-  async purgeSecurityGroupRules(sg: SecurityGroup) {
+  async purgeSecurityGroupRules(sg) {
     const req = paginateDescribeSecurityGroupRules(
       { client: this.ec2 },
-      { Filters: [{ Name: 'group-id', Values: [sg.GroupId!] }] },
+      { Filters: [{ Name: 'group-id', Values: [sg.GroupId] }] },
     );
     for await (const res of req) {
       if (res.SecurityGroupRules?.length) {
         console.log(`>>> Purging securigy group rules: ${sg.GroupId} (${sg.GroupName})`);
       }
-      const ingressRules = res.SecurityGroupRules?.filter((r) => !r.IsEgress).map((r) => r.SecurityGroupRuleId!);
-      const egressRules = res.SecurityGroupRules?.filter((r) => r.IsEgress).map((r) => r.SecurityGroupRuleId!);
+      const ingressRules = res.SecurityGroupRules?.filter((r) => !r.IsEgress).map((r) => r.SecurityGroupRuleId);
+      const egressRules = res.SecurityGroupRules?.filter((r) => r.IsEgress).map((r) => r.SecurityGroupRuleId);
       if (ingressRules?.length) {
         await this.ec2.revokeSecurityGroupIngress({ GroupId: sg.GroupId, SecurityGroupRuleIds: ingressRules });
       }
@@ -210,7 +210,7 @@ class ProcessRegion {
     for await (const res of req) {
       for (const vpce of res.VpcEndpoints ?? []) {
         console.log(`>>> Deleting VPC endpoint: ${vpce.VpcEndpointType} / ${vpce.VpcEndpointId}${getName(vpce.Tags)}`);
-        await this.ec2.deleteVpcEndpoints({ VpcEndpointIds: [vpce.VpcEndpointId!] });
+        await this.ec2.deleteVpcEndpoints({ VpcEndpointIds: [vpce.VpcEndpointId] });
       }
     }
   }
@@ -220,14 +220,14 @@ class ProcessRegion {
       { client: this.ec2 },
       { Filters: [{ Name: 'vpc-id', Values: [this.vpcId] }] },
     );
-    const routeTables: RouteTable[] = [];
+    const routeTables = [];
     for await (const res of req) {
       routeTables.push(...(res.RouteTables ?? []));
     }
     return routeTables;
   }
 
-  async purgeRouteTables(routeTables: RouteTable[]) {
+  async purgeRouteTables(routeTables) {
     for (const rt of routeTables) {
       if (!rt.Routes?.length) return;
       console.log(`>>> Purging route table ${rt.RouteTableId}${getName(rt.Tags)}`);
@@ -247,7 +247,7 @@ class ProcessRegion {
     }
   }
 
-  async deleteRouteTables(routeTables: RouteTable[]) {
+  async deleteRouteTables(routeTables) {
     for (const rt of routeTables) {
       if (rt.Associations?.some((assoc) => assoc?.Main)) continue;
       console.log(`>>> Deleting route table: ${rt.RouteTableId}${getName(rt.Tags)}`);
@@ -313,10 +313,8 @@ class ProcessRegion {
   }
 }
 
-rl.on('SIGINT', () => {
-  process.stdout.write('^C\n');
-  process.exit(130);
-});
-main()
-  .catch(console.error)
-  .finally(() => rl.close());
+try {
+  await main();
+} finally {
+  rl.close();
+}
