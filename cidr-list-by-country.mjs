@@ -1,5 +1,6 @@
 import * as https from 'node:https';
-import { resolve } from 'node:path';
+import * as calc from 'cidr-calc';
+import * as ipaddr from 'ip-address';
 
 const URLS = {
   AFRINIC: 'https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest',
@@ -17,8 +18,6 @@ if (!countries.length) {
   console.error(`usage: ${process.argv[1]} <country codes...>`);
   process.exit(1);
 }
-
-const v4masks = Object.fromEntries(Array.from({ length: 32 }, (_, i) => [2 ** i, 32 - i]));
 
 await Promise.all(
   Object.values(URLS).map(async (url) => {
@@ -48,7 +47,12 @@ async function processList(url) {
     const row = line.split('|');
     if (!(['ipv4', 'ipv6'].includes(row[2]) && countries.includes(row[1]))) continue;
     if (row[2] === 'ipv4') {
-      console.log(`${row[3]}/${v4masks[row[4]]}`);
+      const startip = new ipaddr.Address4(row[3]);
+      const endip = ipaddr.Address4.fromBigInt(startip.bigInt() + BigInt(parseInt(row[4], 10) - 1));
+      const range = new calc.IpRange(calc.IpAddress.of(startip.address), calc.IpAddress.of(endip.address));
+      for (const cidr of range.toCidrs()) {
+        console.log(cidr.toString());
+      }
     } else {
       console.log(`${row[3].toLowerCase()}/${row[4]}`);
     }
