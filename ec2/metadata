@@ -1,0 +1,117 @@
+#!/bin/bash
+set -euo pipefail
+
+METADATA_BASEURL="http://169.254.169.254"
+METADATA_TOKEN_PATH="latest/api/token"
+METADATA_TOKEN_TTL="X-aws-ec2-metadata-token-ttl-seconds"
+METADATA_TOKEN="X-aws-ec2-metadata-token"
+
+declare -A METADATA=(
+  ["ami-id"]="ami-id:ami id"
+  ["ami-launch-index"]="ami-launch-index:ami launch index"
+  ["ami-manifest-path"]="ami-manifest-path:ami manifest path"
+  ["ancestor-ami-ids"]="ancestor-ami-ids:ami ancestor id"
+  ["product-codes"]="product-codes:ami associated product codes"
+  ["availability-zone"]="placement/availability-zone:availability zone name"
+  ["availability-zone-id"]="placement/availability-zone-id:availability zone id"
+  ["region"]="placement/region:region name"
+  ["group-name"]="placement/group-name:placement group name"
+  ["host-id"]="placement/host-id:dedicated host id"
+  ["partition-number"]="placement/partition-number:partition instance was launched from"
+  ["hostname"]="hostname:hostname"
+  ["instance-id"]="instance-id:instance id"
+  ["instance-type"]="instance-type:instance type"
+  ["local-hostname"]="local-hostname:local hostname"
+  ["public-hostname"]="public-hostname:public hostname"
+  ["local-ipv4"]="local-ipv4:local ipv4 ip address"
+  ["public-ipv4"]="public-ipv4:public ipv4 ip address"
+  ["ipv6"]="ipv6:ipv6 ip address"
+  ["block-device-mapping"]="block-device-mapping:block device id"
+  ["security-groups"]="security-groups:security groups"
+  ["mac"]="mac:instance mac address"
+  ["profile"]="profile:instance profile"
+  ["instance-action"]="instance-action:instance action"
+  ["instance-life-cycle"]="instance-life-cycle:instance life cycle"
+  ["domain"]="services/domain:aws service domain"
+  ["partition"]="services/partition:aws service partition"
+)
+
+IS_SINGLE=$(( ${#@} == 1 ))
+IMDS_TOKEN=""
+
+function _die()
+{
+  echo >&2 "$@"
+  exit 1
+}
+
+function _set_imds_token()
+{
+  local EXITSTATUS
+  set +e
+  IMDS_TOKEN=$(curl -sf -XPUT -H "$METADATA_TOKEN_TTL: 900" $METADATA_BASEURL/$METADATA_TOKEN_PATH)
+  EXITSTATUS="$?"
+  set -e
+  if (( $EXITSTATUS > 0 )) || [[ -z "$IMDS_TOKEN" ]]; then
+    _die '[ERROR] Could not get IMDSv2 token. Instance Metadata might have been disabled or this is not an EC2 instance.'
+  fi
+}
+
+function _get_meta()
+{
+  local PREDEF METAPATH METANAME IMDS_OUT EXITSTATUS
+
+  if [[ $1 == --* ]]; then
+    METANAME="${1#--}"
+    PREDEF="${METADATA[$METANAME]}"
+    [[ -z $PREDEF ]] && _die "unknown metadata $1"
+    METAPATH="${PREDEF%%:*}"
+  else
+    METAPATH="$1"
+    METANAME="$1"
+  fi
+
+  [[ -z $IMDS_TOKEN ]] && _set_imds_token
+  set +e
+  IMDS_OUT=$(curl -sf -H "$METADATA_TOKEN: $IMDS_TOKEN" "$METADATA_BASEURL/latest/meta-data/$METAPATH")
+  set -e
+  (( $IS_SINGLE )) || echo -n "$METANAME: "
+  echo "$IMDS_OUT"
+}
+
+function _help()
+{
+  local NAME MAXLEN PREDEF
+  MAXLEN=0
+
+  for NAME in "${!METADATA[@]}"; do
+    if (( ${#NAME} > $MAXLEN )); then
+      MAXLEN="${#NAME}"
+    fi
+  done
+
+  echo >&2 "usage: $0 <--metadata-name|metadata/path>..."
+  echo >&2
+  printf >&2 "    --%-${MAXLEN}s  show this help\\n" "help"
+  echo >&2
+  for NAME in "${!METADATA[@]}"; do
+    PREDEF="${METADATA[$NAME]}"
+    printf >&2 "    --%-${MAXLEN}s  display the %s\\n" "$NAME" "${PREDEF#*:}"
+  done
+  exit
+}
+
+if (( ${#@} == 0 )); then
+  for NAME in "${!METADATA[@]}"; do
+    _get_meta "--$NAME"
+  done
+fi
+
+while (( ${#@} > 0 )); do
+  if [[ $1 == --help ]]; then
+    _help
+  else
+    _get_meta "$1"
+  fi
+  shift
+done
